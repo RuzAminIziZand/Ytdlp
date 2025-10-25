@@ -1,0 +1,98 @@
+name: Build macOS (On-Demand)
+
+# ⚠️ WARNING: macOS runners are expensive (10x Linux cost)
+# This workflow only runs when explicitly triggered or with build-macos label
+# Artifact retention is minimized to reduce storage costs
+
+on:
+  workflow_dispatch:
+    inputs:
+      flutter-version:
+        description: 'Flutter version to use'
+        required: false
+        default: '3.16.0'
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+    branches:
+      - main
+      - develop
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '*.txt'
+      - 'LICENSE'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check-label:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    outputs:
+      should-build: ${{ steps.check.outputs.result }}
+    steps:
+      - name: Check for build-macos label
+        id: check
+        run: |
+          if echo '${{ toJson(github.event.pull_request.labels.*.name) }}' | grep -q 'build-macos'; then
+            echo "result=true" >> $GITHUB_OUTPUT
+          else
+            echo "result=false" >> $GITHUB_OUTPUT
+          fi
+
+  build-macos:
+    runs-on: macos-latest
+    # Only run if workflow_dispatch OR if PR has build-macos label
+    if: |
+      always() && 
+      (github.event_name == 'workflow_dispatch' || 
+       (github.event_name == 'pull_request' && needs.check-label.outputs.should-build == 'true'))
+    needs: [check-label]
+    steps:
+      - name: ⚠️ Cost Warning
+        run: |
+          echo "================================================"
+          echo "⚠️  macOS runners cost 10x more than Linux!"
+          echo "Estimated cost: ~\$0.08 per minute"
+          echo "Keep builds efficient to minimize costs"
+          echo "================================================"
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ github.event.inputs.flutter-version || '3.16.0' }}
+          channel: 'stable'
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Build macOS app
+        run: flutter build macos --release
+
+      - name: Package macOS app
+        run: |
+          cd build/macos/Build/Products/Release
+          zip -r ytdlp-macos.zip ytdlp.app
+
+      - name: Upload macOS app
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-app-${{ github.sha }}
+          path: build/macos/Build/Products/Release/ytdlp-macos.zip
+          retention-days: 1
+          # ⚠️ Low retention to minimize storage costs
+
+      - name: Build summary
+        run: |
+          echo "### macOS Build Complete ✅" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Flutter Version:** ${{ github.event.inputs.flutter-version || '3.16.0' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Artifact:** macos-app-${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Retention:** 1 day" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "⚠️ Download artifact within 24 hours before automatic deletion" >> $GITHUB_STEP_SUMMARY

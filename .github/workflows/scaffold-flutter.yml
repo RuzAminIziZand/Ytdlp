@@ -1,0 +1,60 @@
+name: Scaffold Flutter Project
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '*.txt'
+      - 'LICENSE'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scaffold:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.16.0'
+          channel: 'stable'
+
+      - name: Flutter doctor
+        run: flutter doctor -v
+
+      - name: Create Flutter project structure (if not exists)
+        run: |
+          if [ ! -f "pubspec.yaml" ]; then
+            echo "Creating new Flutter project..."
+            flutter create --project-name ytdlp --org com.ruzamin .
+          else
+            echo "Flutter project already exists."
+          fi
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Analyze code
+        run: flutter analyze
+
+      - name: Run tests
+        run: flutter test
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flutter-scaffold-logs
+          path: |
+            flutter_*.log
+            test-results/
+          retention-days: 1

@@ -1,0 +1,123 @@
+name: Release macOS
+
+# ⚠️ WARNING: macOS runners are expensive (10x Linux cost)
+# This workflow only runs when manually triggered for releases
+# Use responsibly to minimize costs
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., v1.0.0)'
+        required: true
+      flutter-version:
+        description: 'Flutter version to use'
+        required: false
+        default: '3.16.0'
+      prerelease:
+        description: 'Mark as pre-release'
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release-macos:
+    runs-on: macos-latest
+    steps:
+      - name: ⚠️ Cost Warning
+        run: |
+          echo "================================================"
+          echo "⚠️  macOS runners cost 10x more than Linux!"
+          echo "Estimated cost: ~\$0.08 per minute"
+          echo "This is a RELEASE build - costs will be higher"
+          echo "================================================"
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ github.event.inputs.flutter-version }}
+          channel: 'stable'
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Run tests
+        run: flutter test
+
+      - name: Build macOS app (Release)
+        run: flutter build macos --release
+
+      - name: Package macOS app
+        run: |
+          cd build/macos/Build/Products/Release
+          zip -r ytdlp-macos-${{ github.event.inputs.version }}.zip ytdlp.app
+          
+      - name: Calculate checksums
+        run: |
+          cd build/macos/Build/Products/Release
+          shasum -a 256 ytdlp-macos-${{ github.event.inputs.version }}.zip > checksums.txt
+          cat checksums.txt
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.event.inputs.version }}
+          name: Release ${{ github.event.inputs.version }}
+          draft: false
+          prerelease: ${{ github.event.inputs.prerelease }}
+          files: |
+            build/macos/Build/Products/Release/ytdlp-macos-${{ github.event.inputs.version }}.zip
+            build/macos/Build/Products/Release/checksums.txt
+          body: |
+            ## 🎉 Release ${{ github.event.inputs.version }}
+            
+            ### macOS Application
+            
+            - **Flutter Version:** ${{ github.event.inputs.flutter-version }}
+            - **Platform:** macOS (Intel & Apple Silicon)
+            
+            ### Installation
+            
+            1. Download `ytdlp-macos-${{ github.event.inputs.version }}.zip`
+            2. Extract the ZIP file
+            3. Move `ytdlp.app` to your Applications folder
+            4. Right-click and select "Open" on first launch (macOS security)
+            
+            ### Checksums
+            
+            Verify the download integrity using the provided `checksums.txt` file.
+            
+            ```bash
+            shasum -a 256 -c checksums.txt
+            ```
+            
+            ---
+            
+            ⚠️ **Note:** This build was created using GitHub Actions macOS runners.
+
+      - name: Upload artifact (backup)
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-release-${{ github.event.inputs.version }}
+          path: |
+            build/macos/Build/Products/Release/ytdlp-macos-${{ github.event.inputs.version }}.zip
+            build/macos/Build/Products/Release/checksums.txt
+          retention-days: 3
+          # ⚠️ Low retention - release assets are in GitHub Releases
+
+      - name: Release summary
+        run: |
+          echo "### 🎉 Release ${{ github.event.inputs.version }} Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version:** ${{ github.event.inputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Flutter:** ${{ github.event.inputs.flutter-version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Pre-release:** ${{ github.event.inputs.prerelease }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Release assets are now available in GitHub Releases" >> $GITHUB_STEP_SUMMARY

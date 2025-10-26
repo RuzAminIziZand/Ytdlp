@@ -1,60 +1,49 @@
-name: Scaffold Flutter Project
+name: Scaffold Flutter app
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
-      - '*.txt'
-      - 'LICENSE'
+    inputs:
+      app_name:
+        description: "App name (e.g., ytdlp)"
+        required: true
+        default: "ytdlp"
+      org_name:
+        description: "Organization identifier (reverse-DNS, e.g., com.example)"
+        required: true
+        default: "com.ruzamin.ytdlp"
+
+permissions:
+  contents: write
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: scaffold-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   scaffold:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
+      - uses: actions/checkout@v4
         with:
-          flutter-version: '3.16.0'
-          channel: 'stable'
-
-      - name: Flutter doctor
-        run: flutter doctor -v
-
-      - name: Create Flutter project structure (if not exists)
+          fetch-depth: 0
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - name: Create Flutter app (if absent)
         run: |
-          if [ ! -f "pubspec.yaml" ]; then
-            echo "Creating new Flutter project..."
-            flutter create --project-name ytdlp --org com.ruzamin .
-          else
-            echo "Flutter project already exists."
-          fi
-
-      - name: Get dependencies
-        run: flutter pub get
-
-      - name: Analyze code
-        run: flutter analyze
-
-      - name: Run tests
-        run: flutter test
-
-      - name: Upload artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: flutter-scaffold-logs
-          path: |
-            flutter_*.log
-            test-results/
-          retention-days: 1
+          if [ -f "pubspec.yaml" ]; then
+            echo "Flutter project already exists. Skipping scaffold."; exit 0; fi
+          flutter --version
+          flutter config --no-analytics
+          flutter create . --platforms=macos,ios,android,web,windows,linux \
+            --org "${{ github.event.inputs.org_name }}" \
+            --project-name "$(echo "${{ github.event.inputs.app_name }}" | tr '[:upper:]' '[:lower:]' | tr -cd '[:alnum:]_')"
+          flutter pub get
+      - name: Commit scaffold
+        run: |
+          if git diff --quiet; then echo "No changes to commit."; exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Scaffold Flutter app: ${{ github.event.inputs.app_name }}"
+          git push
